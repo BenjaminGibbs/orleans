@@ -14,6 +14,7 @@ using TestExtensions;
 using UnitTests.StorageTests;
 using Xunit;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace UnitTests.MembershipTests
 {
@@ -33,20 +34,20 @@ namespace UnitTests.MembershipTests
     {
         private readonly TestEnvironmentFixture environment;
         private static readonly string hostName = Dns.GetHostName();
-        private readonly Logger logger;
+        private readonly ILogger logger;
         private readonly IMembershipTable membershipTable;
         private readonly IGatewayListProvider gatewayListProvider;
         protected readonly string clusterId;
         protected readonly string connectionString;
         protected ILoggerFactory loggerFactory;
-        protected GlobalConfiguration globalConfiguration;
+        protected IOptions<SiloOptions> siloOptions;
         protected const string testDatabaseName = "OrleansMembershipTest";//for relational storage
         protected readonly ClientConfiguration clientConfiguration;
         protected MembershipTableTestsBase(ConnectionStringFixture fixture, TestEnvironmentFixture environment, LoggerFilterOptions filters)
         {
             this.environment = environment;
             loggerFactory = TestingUtils.CreateDefaultLoggerFactory($"{this.GetType()}.log", filters);
-            logger = new LoggerWrapper<MembershipTableTestsBase>(loggerFactory);
+            logger = loggerFactory.CreateLogger(this.GetType().FullName);
 
             this.clusterId = "test-" + Guid.NewGuid();
 
@@ -54,21 +55,17 @@ namespace UnitTests.MembershipTests
 
             fixture.InitializeConnectionStringAccessor(GetConnectionString);
             this.connectionString = fixture.ConnectionString;
-            globalConfiguration = new GlobalConfiguration
-            {
-                ClusterId = this.clusterId,
-                AdoInvariant = GetAdoInvariant(),
-                DataConnectionString = fixture.ConnectionString
-            };
+            this.siloOptions = Options.Create(new SiloOptions() { ClusterId = this.clusterId });
+            var adoVariant = GetAdoInvariant();
 
             membershipTable = CreateMembershipTable(logger);
             membershipTable.InitializeMembershipTable(true).WithTimeout(TimeSpan.FromMinutes(1)).Wait();
 
             clientConfiguration = new ClientConfiguration
             {
-                ClusterId = globalConfiguration.ClusterId,
-                AdoInvariant = globalConfiguration.AdoInvariant,
-                DataConnectionString = globalConfiguration.DataConnectionString
+                ClusterId = this.clusterId,
+                AdoInvariant = adoVariant,
+                DataConnectionString = fixture.ConnectionString
             };
 
             gatewayListProvider = CreateGatewayListProvider(logger);
@@ -90,8 +87,8 @@ namespace UnitTests.MembershipTests
             this.loggerFactory.Dispose();
         }
 
-        protected abstract IGatewayListProvider CreateGatewayListProvider(Logger logger);
-        protected abstract IMembershipTable CreateMembershipTable(Logger logger);
+        protected abstract IGatewayListProvider CreateGatewayListProvider(ILogger logger);
+        protected abstract IMembershipTable CreateMembershipTable(ILogger logger);
         protected abstract Task<string> GetConnectionString();
 
         protected virtual string GetAdoInvariant()
